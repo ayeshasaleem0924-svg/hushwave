@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#001e2b">
+<title>Hushwave</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#001e2b;--card:#1c2d38;--deep:#003d4f;--green:#00ed64;--text:#e8edeb;--mute:#a9b8b8;--line:rgba(255,255,255,.14);--danger:#ff6f61}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Euclid Circular A",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:1280px;margin:0 auto;padding:16px}
+@media(min-width:768px){.wrap{padding:24px 32px}}
+h1{font-size:28px;margin:0}h2{font-size:20px;margin:28px 0 12px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.mute{color:var(--mute);margin:8px 0}
+.btn{min-height:44px;padding:0 22px;border-radius:999px;border:1px solid var(--green);background:transparent;color:var(--green);font:inherit;font-weight:600;cursor:pointer}
+.btn.primary{background:var(--green);color:var(--bg)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.btn:disabled{opacity:.5;cursor:default}
+input,select{min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font:inherit;max-width:100%}
+input[type=range]{width:100%;padding:0;accent-color:var(--green)}
+input[type=file]{padding:8px 12px}
+.ctrl,.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.ctrl>*{min-width:0}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.sound{display:flex;flex-direction:column;gap:6px}
+.sound .row{justify-content:space-between}
+.pill{border:1px solid var(--green);color:var(--green);border-radius:999px;padding:0 10px;font-size:13px}
+.mix{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}
+.auth{max-width:380px;margin:12vh auto 0;display:flex;flex-direction:column;gap:12px}
+.auth input{width:100%}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--deep);border:1px solid var(--line);border-radius:12px;padding:10px 16px;max-width:90vw;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap"><div id="app"></div></div>
+<div id="toast" role="status"></div>
+<script>
+const SB_URL='https://mqlqjydyjubhaoiyvtny.supabase.co';
+const SB_KEY='sb_publishable_1NXgtoht79YC3NLtAIm-9g_P07tY89x';
+const BUCKET='hushwave-media',MAX_MB=15,CATS=['Rain','Wind','Thunder','Tapping','Brushing','Other'];
+const sb=window.supabase.createClient(SB_URL,SB_KEY);
+const $=id=>document.getElementById(id);
+let user=null,sounds=[],presets=[],levels={},nodes={},bad={},playing=false,ctx=null,master=null,masterVol=1,timer=null,booted=false,curId=null;
+
+function h(tag,props={},...kids){const e=document.createElement(tag);
+  for(const[k,v]of Object.entries(props)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else e.setAttribute(k,v)}
+  for(const c of kids.flat())if(c!=null)e.append(c);return e}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),3500)}
+
+/* ---------- auth ---------- */
+function showAuth(){
+  let mode='login';
+  const msg=h('p',{class:'mute'});
+  const email=h('input',{type:'email',placeholder:'Email',autocomplete:'email'});
+  const pass=h('input',{type:'password',placeholder:'Password (min 6 characters)',autocomplete:'current-password'});
+  const sw=h('button',{class:'btn',type:'button'},'Create a new account');
+  const btn=h('button',{class:'btn primary',type:'submit'},'Log in');
+  const form=h('form',{class:'auth'},h('h1',{},'Hushwave'),h('p',{class:'mute'},'Mix calming sounds. Sleep easy.'),email,pass,btn,sw,msg);
+  sw.onclick=()=>{mode=mode==='login'?'signup':'login';btn.textContent=mode==='login'?'Log in':'Create account';sw.textContent=mode==='login'?'Create a new account':'I already have an account';msg.textContent=''};
+  form.onsubmit=async ev=>{ev.preventDefault();msg.textContent='';
+    const e=email.value.trim(),p=pass.value;
+    if(!e||p.length<6){msg.textContent='Enter an email and a password of at least 6 characters.';return}
+    btn.disabled=true;
+    const r=mode==='login'?await sb.auth.signInWithPassword({email:e,password:p}):await sb.auth.signUp({email:e,password:p});
+    btn.disabled=false;
+    if(r.error)msg.textContent=r.error.message;
+    else if(!r.data.session)msg.textContent='Check your email to confirm your account, then log in.'};
+  $('app').replaceChildren(form);
+}
+sb.auth.onAuthStateChange((ev,session)=>{
+  const id=session&&session.user?session.user.id:null;
+  if(booted&&id===curId)return;
+  booted=true;curId=id;user=session?session.user:null;
+  setTimeout(()=>{if(user)startApp();else{stopAudio();showAuth()}},0);
+});
+
+/* ---------- audio ---------- */
+function ensureCtx(){if(!ctx){ctx=new(window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.gain.value=masterVol;master.connect(ctx.destination)}return ctx}
+async function startNode(id){
+  if(!ctx||nodes[id]||bad[id])return;
+  const s=sounds.find(x=>x.id===id);if(!s)return;
+  const n=nodes[id]={gain:ctx.createGain()};n.gain.gain.value=levels[id]||0;n.gain.connect(master);
+  try{
+    const r=await sb.storage.from(BUCKET).download(s.storage_path);if(r.error)throw r.error;
+    const buf=await ctx.decodeAudioData(await r.data.arrayBuffer());
+    if(nodes[id]!==n)return;
+    const src=ctx.createBufferSource();src.buffer=buf;src.loop=true;src.connect(n.gain);src.start();n.src=src;
+  }catch(e){if(nodes[id]===n)delete nodes[id];bad[id]=true;toast('Could not play "'+s.name+'". Try an mp3 or wav file.')}
+}
+function dropNode(id){const n=nodes[id];if(!n)return;try{n.src&&n.src.stop()}catch(e){}try{n.gain.disconnect()}catch(e){}delete nodes[id]}
+function applyLevel(id){
+  const n=nodes[id];
+  if(n&&ctx)n.gain.gain.setTargetAtTime(levels[id]||0,ctx.currentTime,.05);
+  else if(playing&&levels[id]>0)startNode(id);
+}
+async function togglePlay(){
+  if(playing){await ctx.suspend();playing=false}
+  else{
+    if(!sounds.some(s=>levels[s.id]>0))toast('Move a slider up to hear a sound.');
+    ensureCtx();await ctx.resume();playing=true;
+    sounds.forEach(s=>{if(levels[s.id]>0)startNode(s.id)});
+  }
+  updatePlay();
+}
+function updatePlay(){const b=$('play');if(!b)return;b.textContent=playing?'Pause':'Play';b.className=playing?'btn':'btn primary'}
+function stopAudio(){clearInterval(timer);timer=null;if(ctx){try{ctx.close()}catch(e){}}
+  ctx=null;master=null;nodes={};bad={};playing=false;levels={};sounds=[];presets=[]}
+function setMaster(v){masterVol=v;if(master)master.gain.setTargetAtTime(v,ctx.currentTime,.05)}
+
+/* ---------- sleep timer ---------- */
+const fmt=ms=>{const s=Math.ceil(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function startTimer(min){
+  cancelTimer();const end=Date.now()+min*60000;
+  timer=setInterval(async()=>{
+    const r=end-Date.now();
+    if(r<=0){clearInterval(timer);timer=null;$('tlabel').textContent='';
+      if(playing)await togglePlay();setMaster(masterVol);return}
+    if(r<=8000&&master)master.gain.setTargetAtTime(0,ctx.currentTime,2);
+    $('tlabel').textContent=fmt(r)+' left';
+  },1000);
+  toast('Sleep timer started: '+min+' min');
+}
+function cancelTimer(){if(timer){clearInterval(timer);timer=null;if($('tlabel'))$('tlabel').textContent='';if(master)master.gain.setTargetAtTime(masterVol,ctx.currentTime,.05)}}
+
+/* ---------- data ---------- */
+async function loadSounds(){
+  const r=await sb.from('sounds').select('*').order('created_at');
+  if(r.error)return toast('Could not load sounds: '+r.error.message);
+  sounds=r.data;drawSounds();
+}
+async function loadPresets(){
+  const r=await sb.from('presets').select('*').order('name');
+  if(r.error)return toast('Could not load mixes: '+r.error.message);
+  presets=r.data;drawPresets();
+}
+async function upload(){
+  const f=$('file').files[0],name=$('sname').value.trim(),cat=$('scat').value;
+  if(!f)return toast('Choose an audio file first.');
+  if(!name)return toast('Give the sound a name.');
+  if(!/\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(f.name))return toast('Use an mp3, wav, ogg, m4a, aac or webm file.');
+  if(f.size>MAX_MB*1048576)return toast('File is too big (max '+MAX_MB+' MB).');
+  const b=$('ubtn');b.disabled=true;b.textContent='Uploading...';
+  const path=user.id+'/sounds/'+Date.now()+'-'+f.name.replace(/[^\w.-]/g,'_');
+  try{
+    const up=await sb.storage.from(BUCKET).upload(path,f,{contentType:f.type||'audio/mpeg'});if(up.error)throw up.error;
+    const ins=await sb.from('sounds').insert({name,category:cat,storage_path:path});
+    if(ins.error){await sb.storage.from(BUCKET).remove([path]);throw ins.error}
+    $('file').value='';$('sname').value='';toast('Sound added.');await loadSounds();
+  }catch(e){toast('Upload failed: '+e.message)}
+  b.disabled=false;b.textContent='Upload';
+}
+async function delSound(s){
+  if(!confirm('Delete "'+s.name+'"?'))return;
+  const r=await sb.from('sounds').delete().eq('id',s.id);if(r.error)return toast(r.error.message);
+  await sb.storage.from(BUCKET).remove([s.storage_path]);
+  dropNode(s.id);delete levels[s.id];await loadSounds();
+}
+async function savePreset(){
+  const name=$('pname').value.trim();if(!name)return toast('Name your mix first.');
+  const lv={};sounds.forEach(s=>{if(levels[s.id]>0)lv[s.id]=Math.round(levels[s.id]*100)/100});
+  const r=await sb.from('presets').upsert({user_id:user.id,name,levels:lv,updated_at:new Date().toISOString()},{onConflict:'user_id,name'});
+  if(r.error)return toast(r.error.message);
+  $('pname').value='';toast('Mix saved.');await loadPresets();
+}
+function loadPreset(p){
+  sounds.forEach(s=>{levels[s.id]=(p.levels&&p.levels[s.id])||0});
+  drawSounds();sounds.forEach(s=>applyLevel(s.id));toast('Loaded "'+p.name+'"');
+}
+async function delPreset(p){
+  if(!confirm('Delete mix "'+p.name+'"?'))return;
+  const r=await sb.from('presets').delete().eq('id',p.id);if(r.error)return toast(r.error.message);
+  await loadPresets();
+}
+
+/* ---------- UI ---------- */
+function drawSounds(){
+  const g=$('grid');if(!g)return;
+  if(!sounds.length){g.replaceChildren(h('p',{class:'mute'},'No sounds yet. Add your first sound below.'));return}
+  g.replaceChildren(...sounds.map(s=>h('div',{class:'card sound'},
+    h('div',{class:'row'},h('strong',{},s.name),h('span',{class:'pill'},s.category)),
+    h('input',{type:'range',min:'0',max:'100',value:String(Math.round((levels[s.id]||0)*100)),'aria-label':s.name+' volume',
+      oninput:e=>{levels[s.id]=e.target.value/100;applyLevel(s.id)}}),
+    h('div',{class:'row'},h('span',{class:'mute'},''),h('button',{class:'btn danger',onclick:()=>delSound(s)},'Delete')))));
+}
+function drawPresets(){
+  const m=$('mixes');if(!m)return;
+  if(!presets.length){m.replaceChildren(h('p',{class:'mute'},'No saved mixes yet.'));return}
+  m.replaceChildren(...presets.map(p=>h('div',{class:'mix'},h('strong',{},p.name),
+    h('div',{class:'row'},h('button',{class:'btn primary',onclick:()=>loadPreset(p)},'Load'),
+      h('button',{class:'btn danger',onclick:()=>delPreset(p)},'Delete')))));
+}
+function startApp(){
+  $('app').replaceChildren(
+    h('header',{class:'top'},h('h1',{},'Hushwave'),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out')),
+    h('section',{class:'card ctrl',style:'margin-top:16px'},
+      h('button',{id:'play',class:'btn primary',onclick:togglePlay},'Play'),
+      h('label',{class:'mute',style:'flex:1;min-width:180px'},'Master volume',
+        h('input',{type:'range',min:'0',max:'100',value:'100','aria-label':'Master volume',oninput:e=>setMaster(e.target.value/100)})),
+      h('div',{class:'row'},h('span',{class:'mute'},'Sleep timer'),
+        h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,60,90].map(m=>h('option',{value:m},m+' min'))),
+        h('button',{class:'btn',onclick:()=>startTimer(+$('tsel').value)},'Start'),
+        h('button',{class:'btn',onclick:cancelTimer},'Cancel'),h('span',{id:'tlabel',class:'mute'}))),
+    h('h2',{},'Sounds'),h('div',{id:'grid',class:'grid'}),
+    h('h2',{},'Your mixes'),
+    h('section',{class:'card'},
+      h('div',{class:'row'},h('input',{id:'pname',placeholder:'Mix name, e.g. Rainy Night',maxlength:'60'}),
+        h('button',{class:'btn primary',onclick:savePreset},'Save current mix')),
+      h('div',{id:'mixes'})),
+    h('h2',{},'Add a sound'),
+    h('section',{class:'card'},
+      h('p',{class:'mute'},'mp3, wav, ogg, m4a, aac or webm. Max '+MAX_MB+' MB. A 30 to 90 second loop works best.'),
+      h('div',{class:'row'},h('input',{id:'file',type:'file',accept:'audio/*,.mp3,.wav,.ogg,.m4a,.aac,.webm'}),
+        h('input',{id:'sname',placeholder:'Sound name',maxlength:'60'}),
+        h('select',{id:'scat','aria-label':'Category'},...CATS.map(c=>h('option',{value:c},c))),
+        h('button',{id:'ubtn',class:'btn primary',onclick:upload},'Upload'))));
+  updatePlay();loadSounds();loadPresets();
+}
+</script>
+</body>
+</html>
