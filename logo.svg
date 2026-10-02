@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Hushwave logo">
-  <rect width="64" height="64" rx="16" fill="#001e2b"/>
-  <circle cx="32" cy="32" r="26" fill="#003d4f"/>
-  <path d="M14 21c4-7 8-7 12 0s8 7 12 0 8-7 12 0" fill="none" stroke="#00ed64" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/>
-  <path d="M10 32c5-12 10-12 15 0s10 12 15 0 10-12 14 0" fill="none" stroke="#00ed64" stroke-width="4" stroke-linecap="round"/>
-  <path d="M14 43c4-7 8-7 12 0s8 7 12 0 8-7 12 0" fill="none" stroke="#00ed64" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Hushwave logo"><rect width="100" height="100" rx="22" fill="#c9f7dc"/><g stroke="#003d4f" stroke-width="12" stroke-linecap="round"><path d="M34 28V72M66 28V72"/></g><polyline class="wv" points="16.0,50.0 17.1,52.1 18.3,54.1 19.4,55.9 20.5,57.4 21.7,58.7 22.8,59.5 23.9,59.9 25.1,59.9 26.2,59.5 27.3,58.7 28.5,57.4 29.6,55.9 30.7,54.1 31.9,52.1 33.0,50.0 34.1,47.9 35.3,45.9 36.4,44.1 37.5,42.6 38.7,41.3 39.8,40.5 40.9,40.1 42.1,40.1 43.2,40.5 44.3,41.3 45.5,42.6 46.6,44.1 47.7,45.9 48.9,47.9 50.0,50.0 51.1,52.1 52.3,54.1 53.4,55.9 54.5,57.4 55.7,58.7 56.8,59.5 57.9,59.9 59.1,59.9 60.2,59.5 61.3,58.7 62.5,57.4 63.6,55.9 64.7,54.1 65.9,52.1 67.0,50.0 68.1,47.9 69.3,45.9 70.4,44.1 71.5,42.6 72.7,41.3 73.8,40.5 74.9,40.1 76.1,40.1 77.2,40.5 78.3,41.3 79.5,42.6 80.6,44.1 81.7,45.9 82.9,47.9 84.0,50.0" fill="none" stroke="#00b84f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>

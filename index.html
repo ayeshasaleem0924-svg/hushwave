@@ -6,6 +6,11 @@
 <meta name="theme-color" content="#001e2b">
 <title>Hushwave</title>
 <link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Hushwave">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#001e2b;--card:#1c2d38;--deep:#003d4f;--green:#00ed64;--text:#e8edeb;--mute:#a9b8b8;--line:rgba(255,255,255,.14);--danger:#ff6f61}
@@ -14,6 +19,10 @@ body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Euclid Circu
 .wrap{max-width:1280px;margin:0 auto;padding:16px}
 @media(min-width:768px){.wrap{padding:24px 32px}}
 h1{font-size:28px;margin:0}h2{font-size:20px;margin:28px 0 12px}
+.logo{display:inline-flex;line-height:0}.wv{transform-box:fill-box;transform-origin:center}
+@keyframes pulse{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.45)}}
+.playing .wv{animation:pulse 1.8s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.playing .wv{animation:none}}
 .brand{display:flex;align-items:center;gap:12px}
 .auth img{align-self:center}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -87,6 +96,7 @@ sb.auth.onAuthStateChange((ev,session)=>{
   setTimeout(()=>{if(user)startApp();else{stopAudio();showAuth()}},0);
 });
 
+const LOGO='<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Hushwave logo"><rect width="100" height="100" rx="22" fill="#c9f7dc"/><g stroke="#003d4f" stroke-width="12" stroke-linecap="round"><path d="M34 28V72M66 28V72"/></g><polyline class="wv" points="16.0,50.0 17.1,52.1 18.3,54.1 19.4,55.9 20.5,57.4 21.7,58.7 22.8,59.5 23.9,59.9 25.1,59.9 26.2,59.5 27.3,58.7 28.5,57.4 29.6,55.9 30.7,54.1 31.9,52.1 33.0,50.0 34.1,47.9 35.3,45.9 36.4,44.1 37.5,42.6 38.7,41.3 39.8,40.5 40.9,40.1 42.1,40.1 43.2,40.5 44.3,41.3 45.5,42.6 46.6,44.1 47.7,45.9 48.9,47.9 50.0,50.0 51.1,52.1 52.3,54.1 53.4,55.9 54.5,57.4 55.7,58.7 56.8,59.5 57.9,59.9 59.1,59.9 60.2,59.5 61.3,58.7 62.5,57.4 63.6,55.9 64.7,54.1 65.9,52.1 67.0,50.0 68.1,47.9 69.3,45.9 70.4,44.1 71.5,42.6 72.7,41.3 73.8,40.5 74.9,40.1 76.1,40.1 77.2,40.5 78.3,41.3 79.5,42.6 80.6,44.1 81.7,45.9 82.9,47.9 84.0,50.0" fill="none" stroke="#00b84f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const BUILTINS=[
   {id:'b:light-rain-leaves',name:'Light rain drips on leaves',category:'Rain',builtin:true,url:'sounds/light-rain-leaves.mp3'},
   {id:'b:rain-4',name:'Rain 4',category:'Rain',builtin:true,url:'sounds/rain-4.mp3'},
@@ -147,7 +157,7 @@ async function togglePlay(){
   }
   updatePlay();
 }
-function updatePlay(){const b=$('play');if(!b)return;b.textContent=playing?'Pause':'Play';b.className=playing?'btn':'btn primary'}
+function updatePlay(){document.body.classList.toggle('playing',playing);const b=$('play');if(!b)return;b.textContent=playing?'Pause':'Play';b.className=playing?'btn':'btn primary'}
 function stopAudio(){clearInterval(timer);timer=null;Object.keys(nodes).forEach(dropNode);if(ctx){try{ctx.close()}catch(e){}}
   ctx=null;master=null;noiseBuf=null;nodes={};bad={};playing=false;levels={};sounds=[];presets=[]}
 function setMaster(v){masterVol=v;if(master)master.gain.setTargetAtTime(v,ctx.currentTime,.05)}
@@ -236,7 +246,7 @@ function drawPresets(){
 }
 function startApp(){
   $('app').replaceChildren(
-    h('header',{class:'top'},h('div',{class:'brand'},h('img',{src:'logo.svg',alt:'',width:'40',height:'40'}),h('h1',{},'Hushwave')),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out')),
+    h('header',{class:'top'},h('div',{class:'brand'},h('span',{id:'hlogo',class:'logo','aria-hidden':'true'}),h('h1',{},'Hushwave')),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out')),
     h('section',{class:'card ctrl',style:'margin-top:16px'},
       h('button',{id:'play',class:'btn primary',onclick:togglePlay},'Play'),
       h('label',{class:'mute',style:'flex:1;min-width:180px'},'Master volume',
@@ -262,8 +272,9 @@ function startApp(){
         h('input',{id:'sname',placeholder:'Sound name',maxlength:'60'}),
         h('select',{id:'scat','aria-label':'Category'},...CATS.map(c=>h('option',{value:c},c))),
         h('button',{id:'ubtn',class:'btn primary',onclick:upload},'Upload'))));
-  updatePlay();loadSounds();loadPresets();
+  $('hlogo').innerHTML=LOGO;updatePlay();loadSounds();loadPresets();
 }
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
 </body>
 </html>
