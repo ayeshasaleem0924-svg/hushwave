@@ -33,7 +33,7 @@ h1{font-size:28px;margin:0}h2{font-size:20px;margin:28px 0 12px}
 .btn.danger{border-color:var(--danger);color:var(--danger)}
 .btn:disabled{opacity:.5;cursor:default}
 input,select{min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font:inherit;max-width:100%}
-input[type=range]{width:100%;padding:0;accent-color:var(--green)}
+input[type=range]{width:100%;padding:0;accent-color:var(--green);touch-action:pan-y}
 input[type=file]{padding:8px 12px}
 .ctrl,.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 .ctrl>*{min-width:0}
@@ -44,7 +44,12 @@ input[type=file]{padding:8px 12px}
 .mix{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}
 .auth{max-width:380px;margin:12vh auto 0;display:flex;flex-direction:column;gap:12px}
 .auth input{width:100%}
-.guide{display:grid;gap:16px;margin-top:8px}
+.icon-btn{width:44px;height:44px;border-radius:50%;border:1px solid var(--green);background:transparent;color:var(--green);font:inherit;font-weight:700;font-size:20px;cursor:pointer}
+dialog.help{width:min(92vw,900px);max-height:85vh;overflow:auto;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:16px}
+dialog.help::backdrop{background:rgba(0,0,0,.65)}
+.btn.sm{min-height:40px;padding:0 16px;font-size:15px}
+.mixsave{margin-bottom:14px}.mixsave input{flex:1;min-width:150px}
+.guide{display:grid;gap:16px;margin-top:12px}
 @media(min-width:768px){.guide{grid-template-columns:1fr 1fr}}
 .guide>div{background:#d7f3e3;color:#001e2b;border-radius:12px;padding:14px 18px}
 .guide ol{margin:8px 0 0;padding-left:22px}.guide li{margin:8px 0;line-height:1.6}
@@ -228,13 +233,22 @@ async function delPreset(p){
 }
 
 /* ---------- UI ---------- */
+function slider(val,label,set){
+  const i=h('input',{type:'range',min:'0',max:'100',value:String(val),'aria-label':label});
+  i.oninput=()=>set(i.value/100);
+  let sx=0,sy=0,prev=i.value;
+  const undo=()=>{if(i.value!==prev){i.value=prev;set(prev/100)}};
+  i.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;prev=i.value},{passive:true});
+  i.addEventListener('touchmove',e=>{const t=e.touches[0],dy=Math.abs(t.clientY-sy);if(dy>10&&dy>Math.abs(t.clientX-sx))undo()},{passive:true});
+  i.addEventListener('touchcancel',undo);
+  return i;
+}
 function drawSounds(){
   const g=$('grid');if(!g)return;
   if(!sounds.length){g.replaceChildren(h('p',{class:'mute'},'No sounds yet. Add your first sound below.'));return}
   g.replaceChildren(...sounds.map(s=>h('div',{class:'card sound'},
     h('div',{class:'row'},h('strong',{},s.name),h('span',{class:'pill'},s.category)),
-    h('input',{type:'range',min:'0',max:'100',value:String(Math.round((levels[s.id]||0)*100)),'aria-label':s.name+' volume',
-      oninput:e=>{levels[s.id]=e.target.value/100;applyLevel(s.id)}}),
+    slider(Math.round((levels[s.id]||0)*100),s.name+' volume',v=>{levels[s.id]=v;applyLevel(s.id)}),
     h('div',{class:'row'},h('span',{class:'mute'},s.builtin?'Built-in':''),s.builtin?null:h('button',{class:'btn danger',onclick:()=>delSound(s)},'Delete')))));
 }
 function drawPresets(){
@@ -246,24 +260,25 @@ function drawPresets(){
 }
 function startApp(){
   $('app').replaceChildren(
-    h('header',{class:'top'},h('div',{class:'brand'},h('span',{id:'hlogo',class:'logo','aria-hidden':'true'}),h('h1',{},'Hushwave')),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out')),
+    h('header',{class:'top'},h('div',{class:'brand'},h('span',{id:'hlogo',class:'logo','aria-hidden':'true'}),h('h1',{},'Hushwave')),h('div',{class:'row'},h('button',{class:'icon-btn','aria-label':'Help: how to mix',title:'How to mix',onclick:()=>$('help').showModal()},'?'),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out'))),
     h('section',{class:'card ctrl',style:'margin-top:16px'},
       h('button',{id:'play',class:'btn primary',onclick:togglePlay},'Play'),
       h('label',{class:'mute',style:'flex:1;min-width:180px'},'Master volume',
-        h('input',{type:'range',min:'0',max:'100',value:'100','aria-label':'Master volume',oninput:e=>setMaster(e.target.value/100)})),
+        slider(Math.round(masterVol*100),'Master volume',setMaster)),
       h('div',{class:'row'},h('span',{class:'mute'},'Sleep timer'),
         h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,60,90].map(m=>h('option',{value:m},m+' min'))),
         h('button',{class:'btn',onclick:()=>startTimer(+$('tsel').value)},'Start'),
         h('button',{class:'btn',onclick:cancelTimer},'Cancel'),h('span',{id:'tlabel',class:'mute'}))),
-    h('details',{class:'card',open:'',style:'margin-top:16px'},h('summary',{},'How to mix / Mix kaise banayein'),
+    h('dialog',{id:'help',class:'help'},
+      h('div',{class:'row',style:'justify-content:space-between'},h('h2',{style:'margin:0'},'How to mix / Mix kaise banayein'),h('button',{class:'btn',onclick:()=>$('help').close()},'Close')),
       h('div',{class:'guide'},
         h('div',{},h('strong',{},'English'),h('ol',{},...GUIDE.en.map(t=>h('li',{},t)))),
         h('div',{},h('strong',{},'Roman Urdu'),h('ol',{},...GUIDE.ur.map(t=>h('li',{},t)))))),
     h('h2',{},'Sounds'),h('div',{id:'grid',class:'grid'}),
     h('h2',{},'Your mixes'),
     h('section',{class:'card'},
-      h('div',{class:'row'},h('input',{id:'pname',placeholder:'Mix name, e.g. Rainy Night',maxlength:'60'}),
-        h('button',{class:'btn primary',onclick:savePreset},'Save current mix')),
+      h('div',{class:'row mixsave'},h('input',{id:'pname',placeholder:'Mix name, e.g. Rainy Night',maxlength:'60'}),
+        h('button',{class:'btn primary sm',onclick:savePreset},'Save current mix')),
       h('div',{id:'mixes'})),
     h('h2',{},'Add a sound'),
     h('section',{class:'card'},
@@ -272,7 +287,7 @@ function startApp(){
         h('input',{id:'sname',placeholder:'Sound name',maxlength:'60'}),
         h('select',{id:'scat','aria-label':'Category'},...CATS.map(c=>h('option',{value:c},c))),
         h('button',{id:'ubtn',class:'btn primary',onclick:upload},'Upload'))));
-  $('hlogo').innerHTML=LOGO;updatePlay();loadSounds();loadPresets();
+  $('hlogo').innerHTML=LOGO;$('help').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.close()});updatePlay();loadSounds();loadPresets();
 }
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
