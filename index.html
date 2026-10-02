@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#001e2b">
 <title>Hushwave</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#001e2b;--card:#1c2d38;--deep:#003d4f;--green:#00ed64;--text:#e8edeb;--mute:#a9b8b8;--line:rgba(255,255,255,.14);--danger:#ff6f61}
@@ -13,6 +14,8 @@ body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Euclid Circu
 .wrap{max-width:1280px;margin:0 auto;padding:16px}
 @media(min-width:768px){.wrap{padding:24px 32px}}
 h1{font-size:28px;margin:0}h2{font-size:20px;margin:28px 0 12px}
+.brand{display:flex;align-items:center;gap:12px}
+.auth img{align-self:center}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
 .mute{color:var(--mute);margin:8px 0}
@@ -32,6 +35,11 @@ input[type=file]{padding:8px 12px}
 .mix{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}
 .auth{max-width:380px;margin:12vh auto 0;display:flex;flex-direction:column;gap:12px}
 .auth input{width:100%}
+.guide{display:grid;gap:16px;margin-top:8px}
+@media(min-width:768px){.guide{grid-template-columns:1fr 1fr}}
+.guide>div{background:#d7f3e3;color:#001e2b;border-radius:12px;padding:14px 18px}
+.guide ol{margin:8px 0 0;padding-left:22px}.guide li{margin:8px 0;line-height:1.6}
+summary{cursor:pointer;font-weight:600;min-height:32px}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--deep);border:1px solid var(--line);border-radius:12px;padding:10px 16px;max-width:90vw;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.show{opacity:1}
 </style>
@@ -45,7 +53,7 @@ const SB_KEY='sb_publishable_1NXgtoht79YC3NLtAIm-9g_P07tY89x';
 const BUCKET='hushwave-media',MAX_MB=15,CATS=['Rain','Wind','Thunder','Tapping','Brushing','Other'];
 const sb=window.supabase.createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
-let user=null,sounds=[],presets=[],levels={},nodes={},bad={},playing=false,ctx=null,master=null,masterVol=1,timer=null,booted=false,curId=null;
+let user=null,sounds=[],presets=[],levels={},nodes={},bad={},playing=false,ctx=null,master=null,masterVol=1,timer=null,booted=false,curId=null,noiseBuf=null;
 
 function h(tag,props={},...kids){const e=document.createElement(tag);
   for(const[k,v]of Object.entries(props)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else e.setAttribute(k,v)}
@@ -60,7 +68,7 @@ function showAuth(){
   const pass=h('input',{type:'password',placeholder:'Password (min 6 characters)',autocomplete:'current-password'});
   const sw=h('button',{class:'btn',type:'button'},'Create a new account');
   const btn=h('button',{class:'btn primary',type:'submit'},'Log in');
-  const form=h('form',{class:'auth'},h('h1',{},'Hushwave'),h('p',{class:'mute'},'Mix calming sounds. Sleep easy.'),email,pass,btn,sw,msg);
+  const form=h('form',{class:'auth'},h('img',{src:'logo.svg',alt:'Hushwave logo',width:'72',height:'72'}),h('h1',{style:'text-align:center'},'Hushwave'),h('p',{class:'mute'},'Mix calming sounds. Sleep easy.'),email,pass,btn,sw,msg);
   sw.onclick=()=>{mode=mode==='login'?'signup':'login';btn.textContent=mode==='login'?'Log in':'Create account';sw.textContent=mode==='login'?'Create a new account':'I already have an account';msg.textContent=''};
   form.onsubmit=async ev=>{ev.preventDefault();msg.textContent='';
     const e=email.value.trim(),p=pass.value;
@@ -79,6 +87,36 @@ sb.auth.onAuthStateChange((ev,session)=>{
   setTimeout(()=>{if(user)startApp();else{stopAudio();showAuth()}},0);
 });
 
+const BUILTINS=[
+  {id:'b:light-rain-leaves',name:'Light rain drips on leaves',category:'Rain',builtin:true,url:'sounds/light-rain-leaves.mp3'},
+  {id:'b:rain-4',name:'Rain 4',category:'Rain',builtin:true,url:'sounds/rain-4.mp3'},
+  {id:'b:winchester-wind',name:'Winchester wind ambience',category:'Wind',builtin:true,url:'sounds/winchester-wind.mp3'},
+  {id:'b:gentle-breeze',name:'A gentle breeze wind 2',category:'Wind',builtin:true,url:'sounds/gentle-breeze.mp3'},
+  {id:'b:distant-thunder',name:'Rolling distant thunder in heavy rain 06',category:'Thunder',builtin:true,url:'sounds/distant-thunder.mp3'},
+  {id:'b:long-thunder',name:'Long thunder edited',category:'Thunder',builtin:true,url:'sounds/long-thunder.mp3'},
+  {id:'b:brushing-hairbrush',name:'Brushing the hairbrush',category:'Brushing',builtin:true,url:'sounds/brushing-hairbrush.mp3'},
+  {id:'b:brushing-hair',name:'Brushing hair',category:'Brushing',builtin:true,url:'sounds/brushing-hair.mp3'},
+  {id:'b:scrubbing-brush',name:'Scrubbing brush',category:'Brushing',builtin:true,url:'sounds/scrubbing-brush.mp3'},
+  {id:'b:tapping-fingers',name:'Tapping fingers',category:'Tapping',builtin:true,url:'sounds/tapping-fingers.mp3'},
+  {id:'b:nails-tapping',name:'Nails tapping of hard surface',category:'Tapping',builtin:true,url:'sounds/nails-tapping.mp3'},
+  {id:'b:fingers-tapping',name:'Fingers tapping',category:'Tapping',builtin:true,url:'sounds/fingers-tapping.mp3'},
+  {id:'b:keyboard-tapping',name:'Keyboard tapping',category:'Tapping',builtin:true,url:'sounds/keyboard-tapping.mp3'},
+  {id:'b:scratching-fast',name:'Scratching fast',category:'Brushing',builtin:true,url:'sounds/scratching-fast.mp3'}];
+const GUIDE={en:[
+ 'Press Play. Nothing is heard until you do.',
+ 'Slide the sounds you want to the right. Further right means louder. Leave the others at the far left (silent).',
+ 'Balance them, for example a little Tapping with more Rain. Master volume changes everything together.',
+ 'Type a name under "Your mixes" and press Save current mix.',
+ 'Press Load next to a saved mix to bring it back. Saving with the same name replaces the old mix.',
+ 'To fall asleep, pick minutes under Sleep timer and press Start. The sound fades out at the end.'],
+ur:[
+ 'Pehle Play dabayein. Jab tak Play na ho, koi awaaz nahi aati.',
+ 'Jo sounds chahiye unke sliders dahini taraf khenchein. Jitna dahini taraf, utni tez awaaz. Baaqi sliders bilkul baayen taraf (khamosh) rehne dein.',
+ 'Sounds ka balance banayein, jaise thori si Tapping aur zyada Rain. Master volume sab awaazon ki kul awaaz badalta hai.',
+ '"Your mixes" mein naam likhein aur Save current mix dabayein.',
+ 'Saved mix ke saath Load dabayein to woh wapas aa jati hai. Wahi naam dobara save karein to purani mix badal jati hai.',
+ 'Neend ke liye Sleep timer mein minute chunein aur Start dabayein. Aakhir mein awaaz dheere dheere khatam ho jati hai.']};
+
 /* ---------- audio ---------- */
 function ensureCtx(){if(!ctx){ctx=new(window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.gain.value=masterVol;master.connect(ctx.destination)}return ctx}
 async function startNode(id){
@@ -86,8 +124,10 @@ async function startNode(id){
   const s=sounds.find(x=>x.id===id);if(!s)return;
   const n=nodes[id]={gain:ctx.createGain()};n.gain.gain.value=levels[id]||0;n.gain.connect(master);
   try{
-    const r=await sb.storage.from(BUCKET).download(s.storage_path);if(r.error)throw r.error;
-    const buf=await ctx.decodeAudioData(await r.data.arrayBuffer());
+    let ab;
+    if(s.builtin){const r=await fetch(s.url);if(!r.ok)throw new Error('missing file');ab=await r.arrayBuffer()}
+    else{const r=await sb.storage.from(BUCKET).download(s.storage_path);if(r.error)throw r.error;ab=await r.data.arrayBuffer()}
+    const buf=await ctx.decodeAudioData(ab);
     if(nodes[id]!==n)return;
     const src=ctx.createBufferSource();src.buffer=buf;src.loop=true;src.connect(n.gain);src.start();n.src=src;
   }catch(e){if(nodes[id]===n)delete nodes[id];bad[id]=true;toast('Could not play "'+s.name+'". Try an mp3 or wav file.')}
@@ -108,8 +148,8 @@ async function togglePlay(){
   updatePlay();
 }
 function updatePlay(){const b=$('play');if(!b)return;b.textContent=playing?'Pause':'Play';b.className=playing?'btn':'btn primary'}
-function stopAudio(){clearInterval(timer);timer=null;if(ctx){try{ctx.close()}catch(e){}}
-  ctx=null;master=null;nodes={};bad={};playing=false;levels={};sounds=[];presets=[]}
+function stopAudio(){clearInterval(timer);timer=null;Object.keys(nodes).forEach(dropNode);if(ctx){try{ctx.close()}catch(e){}}
+  ctx=null;master=null;noiseBuf=null;nodes={};bad={};playing=false;levels={};sounds=[];presets=[]}
 function setMaster(v){masterVol=v;if(master)master.gain.setTargetAtTime(v,ctx.currentTime,.05)}
 
 /* ---------- sleep timer ---------- */
@@ -130,8 +170,8 @@ function cancelTimer(){if(timer){clearInterval(timer);timer=null;if($('tlabel'))
 /* ---------- data ---------- */
 async function loadSounds(){
   const r=await sb.from('sounds').select('*').order('created_at');
-  if(r.error)return toast('Could not load sounds: '+r.error.message);
-  sounds=r.data;drawSounds();
+  sounds=BUILTINS.concat(r.error?[]:r.data);drawSounds();
+  if(r.error)toast('Could not load sounds: '+r.error.message);
 }
 async function loadPresets(){
   const r=await sb.from('presets').select('*').order('name');
@@ -185,7 +225,7 @@ function drawSounds(){
     h('div',{class:'row'},h('strong',{},s.name),h('span',{class:'pill'},s.category)),
     h('input',{type:'range',min:'0',max:'100',value:String(Math.round((levels[s.id]||0)*100)),'aria-label':s.name+' volume',
       oninput:e=>{levels[s.id]=e.target.value/100;applyLevel(s.id)}}),
-    h('div',{class:'row'},h('span',{class:'mute'},''),h('button',{class:'btn danger',onclick:()=>delSound(s)},'Delete')))));
+    h('div',{class:'row'},h('span',{class:'mute'},s.builtin?'Built-in':''),s.builtin?null:h('button',{class:'btn danger',onclick:()=>delSound(s)},'Delete')))));
 }
 function drawPresets(){
   const m=$('mixes');if(!m)return;
@@ -196,7 +236,7 @@ function drawPresets(){
 }
 function startApp(){
   $('app').replaceChildren(
-    h('header',{class:'top'},h('h1',{},'Hushwave'),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out')),
+    h('header',{class:'top'},h('div',{class:'brand'},h('img',{src:'logo.svg',alt:'',width:'40',height:'40'}),h('h1',{},'Hushwave')),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out')),
     h('section',{class:'card ctrl',style:'margin-top:16px'},
       h('button',{id:'play',class:'btn primary',onclick:togglePlay},'Play'),
       h('label',{class:'mute',style:'flex:1;min-width:180px'},'Master volume',
@@ -205,6 +245,10 @@ function startApp(){
         h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,60,90].map(m=>h('option',{value:m},m+' min'))),
         h('button',{class:'btn',onclick:()=>startTimer(+$('tsel').value)},'Start'),
         h('button',{class:'btn',onclick:cancelTimer},'Cancel'),h('span',{id:'tlabel',class:'mute'}))),
+    h('details',{class:'card',open:'',style:'margin-top:16px'},h('summary',{},'How to mix / Mix kaise banayein'),
+      h('div',{class:'guide'},
+        h('div',{},h('strong',{},'English'),h('ol',{},...GUIDE.en.map(t=>h('li',{},t)))),
+        h('div',{},h('strong',{},'Roman Urdu'),h('ol',{},...GUIDE.ur.map(t=>h('li',{},t)))))),
     h('h2',{},'Sounds'),h('div',{id:'grid',class:'grid'}),
     h('h2',{},'Your mixes'),
     h('section',{class:'card'},
