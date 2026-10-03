@@ -59,6 +59,7 @@ dialog.help::backdrop{background:rgba(0,0,0,.65)}
 .vbar{position:absolute;left:0;right:0;bottom:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;background:linear-gradient(transparent,rgba(0,30,43,.9));transition:opacity .3s}
 .vbar label{display:flex;align-items:center;gap:8px;min-width:140px}
 .vis.hide .vbar{opacity:0;pointer-events:none}
+.grp{flex:1 1 220px;min-width:0}.nw{flex-wrap:nowrap;gap:8px}.nw select{flex:1;min-width:0}
 .mixsave{margin-bottom:14px}.mixsave input{flex:1;min-width:150px}
 .guide{display:grid;gap:16px;margin-top:12px}
 @media(min-width:768px){.guide{grid-template-columns:1fr 1fr}}
@@ -250,13 +251,44 @@ let visual='none',vraf=0,dim=1,fadeV=1,flashAt=-99,VS={};
 const VOPTS=[['none','No visual'],['rain','Rain on window'],['glow','Glow particles'],['aurora','Aurora'],['ripples','Ripples'],['breathe','Breathing circle']];
 const lv=c=>sounds.reduce((m,s)=>s.category===c?Math.max(m,levels[s.id]||0):m,0);
 const rnd=(a,b)=>a+Math.random()*(b-a);
+function makeBg(W,H){
+  const b=document.createElement('canvas');b.width=W>>1;b.height=H>>1;
+  const g=b.getContext('2d'),w=b.width,h=b.height,m=Math.min(w,h);
+  const l=g.createLinearGradient(0,0,0,h);l.addColorStop(0,'#012a38');l.addColorStop(1,'#00101a');
+  g.fillStyle=l;g.fillRect(0,0,w,h);g.globalCompositeOperation='lighter';
+  const cols=['255,190,110','0,237,100','90,200,220','255,140,120','160,230,190'];
+  for(let i=0;i<46;i++){
+    const x=rnd(0,w),y=rnd(h*.2,h),r=rnd(.04,.14)*m,c=cols[i%cols.length],gr=g.createRadialGradient(x,y,0,x,y,r);
+    gr.addColorStop(0,`rgba(${c},.55)`);gr.addColorStop(.65,`rgba(${c},.2)`);gr.addColorStop(1,`rgba(${c},0)`);
+    g.fillStyle=gr;g.fillRect(x-r,y-r,r*2,r*2);
+  }
+  return b;
+}
+function lens(c,bg,x,y,r,W,H){
+  const S=r*6,kx=bg.width/W,ky=bg.height/H;
+  c.save();c.beginPath();c.arc(x,y,r,0,6.3);c.clip();c.translate(x,y);c.rotate(Math.PI);
+  try{c.drawImage(bg,(x-S/2)*kx,(y-S/2)*ky,S*kx,S*ky,-r,-r,2*r,2*r)}catch(e){}
+  c.restore();
+  c.strokeStyle='rgba(0,16,26,.5)';c.lineWidth=Math.max(1,r*.16);c.beginPath();c.arc(x,y,r,0,6.3);c.stroke();
+  c.fillStyle='rgba(255,255,255,.55)';c.beginPath();c.arc(x-r*.35,y-r*.4,Math.max(.8,r*.2),0,6.3);c.fill();
+}
 const VIS={
   rain(c,W,H,t,dt){
-    const r=lv('Rain');VS.d=VS.d||[];
-    let n=(.25+r*1.6)*dt*60;n=Math.floor(n)+(Math.random()<n%1?1:0);
-    for(let i=0;i<n&&VS.d.length<900;i++)VS.d.push({x:rnd(0,W),y:rnd(-20,H*.3),v:rnd(40,160)*(H/800),r:rnd(1,3.2)});
-    c.fillStyle='rgba(190,235,235,.5)';c.strokeStyle='rgba(190,235,235,.18)';c.lineWidth=1;
-    VS.d=VS.d.filter(d=>{d.y+=d.v*dt*(.6+d.r/3);c.beginPath();c.moveTo(d.x,d.y-d.v*.25);c.lineTo(d.x,d.y);c.stroke();c.beginPath();c.arc(d.x,d.y,d.r,0,6.3);c.fill();return d.y<H+10});
+    const r=lv('Rain'),u=Math.min(W,H)/700;
+    if(!VS.bg){VS.bg=makeBg(W,H);VS.sl=[];VS.st=Array.from({length:70},()=>({x:rnd(0,W),y:rnd(0,H),r:rnd(1.5,4.5)*u}))}
+    c.drawImage(VS.bg,0,0,W,H);
+    if(Math.random()<(.15+r*1.4)*dt&&VS.sl.length<26)VS.sl.push({x:rnd(.03,.97)*W,y:rnd(0,.6)*H,r:rnd(4,9)*u,v:rnd(35,110)*u,mv:Math.random()<.5,tm:rnd(.3,1.5),tr:[]});
+    if(Math.random()<(.4+r*3)*dt)VS.st.push({x:rnd(0,W),y:rnd(0,H),r:rnd(1.2,3.5)*u});
+    VS.sl=VS.sl.filter(d=>{
+      d.tm-=dt;if(d.tm<=0){d.mv=!d.mv;d.tm=d.mv?rnd(.4,1.8):rnd(.3,2.2)}
+      if(d.mv){d.y+=d.v*dt;d.tr.push([d.x+rnd(-.4,.4),d.y]);if(d.tr.length>34)d.tr.shift();
+        if(Math.random()<1.4*dt)VS.st.push({x:d.x+rnd(-2,2)*u,y:d.y-d.r,r:rnd(1,2.2)*u})}
+      return d.y<H+d.r*2});
+    while(VS.st.length>150)VS.st.shift();
+    c.lineCap='round';
+    for(const d of VS.sl){if(d.tr.length>1){c.strokeStyle='rgba(215,240,240,.12)';c.lineWidth=d.r*.5;c.beginPath();c.moveTo(d.tr[0][0],d.tr[0][1]);for(const q of d.tr)c.lineTo(q[0],q[1]);c.stroke()}}
+    for(const d of VS.st)lens(c,VS.bg,d.x,d.y,d.r,W,H);
+    for(const d of VS.sl)lens(c,VS.bg,d.x,d.y,d.r,W,H);
   },
   glow(c,W,H,t,dt){
     const w=lv('Wind');
@@ -356,11 +388,11 @@ function startApp(){
       h('button',{id:'play',class:'btn primary',onclick:togglePlay},'Play'),
       h('label',{class:'mute',style:'flex:1;min-width:180px'},'Master volume',
         slider(Math.round(masterVol*100),'Master volume',setMaster)),
-      h('div',{class:'row'},h('span',{class:'mute'},'Sleep timer'),
-        h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,60,90].map(m=>h('option',{value:m},m+' min'))),
-        h('button',{class:'btn',onclick:()=>startTimer(+$('tsel').value)},'Start'),
-        h('button',{class:'btn',onclick:cancelTimer},'Cancel'),h('span',{id:'tlabel',class:'mute'})),
-      h('div',{class:'row'},h('span',{class:'mute'},'Visual'),h('select',{id:'vsel','aria-label':'Visual',onchange:e=>{visual=e.target.value}},...VOPTS.map(([v,n])=>h('option',{value:v},n))),h('button',{class:'btn',onclick:openVis},'Show'))),
+      h('div',{class:'grp'},h('div',{class:'mute'},'Sleep timer ',h('span',{id:'tlabel'})),
+        h('div',{class:'row nw'},h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,60,90].map(m=>h('option',{value:m},m+' min'))),
+          h('button',{class:'btn sm',onclick:()=>startTimer(+$('tsel').value)},'Start'),
+          h('button',{class:'btn sm',onclick:cancelTimer},'Cancel'))),
+      h('div',{class:'grp'},h('div',{class:'mute'},'Visual'),h('div',{class:'row nw'},h('select',{id:'vsel','aria-label':'Visual',onchange:e=>{visual=e.target.value}},...VOPTS.map(([v,n])=>h('option',{value:v},n))),h('button',{class:'btn sm',onclick:openVis},'Show')))),
     h('div',{id:'vis',class:'vis',hidden:''},h('canvas',{id:'cv'}),h('div',{class:'vbar'},h('button',{id:'vplay',class:'btn primary sm',onclick:togglePlay},'Play'),h('label',{class:'mute'},'Dim',slider(100,'Dim',v=>{dim=Math.max(.15,v)})),h('button',{class:'btn sm',onclick:closeVis},'Close'))),
     h('dialog',{id:'help',class:'help'},
       h('div',{class:'row',style:'justify-content:space-between'},h('h2',{style:'margin:0'},'How to mix / Mix kaise banayein'),h('button',{class:'btn',onclick:()=>$('help').close()},'Close')),
