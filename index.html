@@ -256,6 +256,14 @@ async function savePreset(){
   if(r.error)return toast(r.error.message);
   $('pname').value='';toast('Mix saved.');const cm=$('curmix');if(cm)cm.textContent=name;closePop();await loadPresets();
 }
+function randomMix(){
+  if(!sounds.length)return;
+  const pool=sounds.slice().sort(()=>Math.random()-.5),n=Math.min(pool.length,2+Math.floor(Math.random()*3)),pick=new Set(pool.slice(0,n).map(s=>s.id));
+  sounds.forEach(s=>{levels[s.id]=pick.has(s.id)?Math.round((.25+Math.random()*.55)*20)/20:0});
+  drawSounds();sounds.forEach(s=>applyLevel(s.id));
+  curMixName='Random mix';const cm=$('curmix');if(cm)cm.textContent='Random mix';closePop();saveState();
+  toast('Random mix: '+pool.slice(0,n).map(s=>s.name).join(', '));
+}
 function loadPreset(p){
   sounds.forEach(s=>{levels[s.id]=(p.levels&&p.levels[s.id])||0});
   visual=p.visual||'none';const vs=$('vsel');if(vs)vs.value=visual;
@@ -662,6 +670,7 @@ float h11(float p){p=fract(p*.1031);p*=p+33.33;p*=p+p;return fract(p);}
 float h21(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
 float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h21(i),h21(i+vec2(1.,0.)),f.x),mix(h21(i+vec2(0.,1.)),h21(i+vec2(1.,1.)),f.x),f.y);}
 float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*n2(p);p=p*2.03+vec2(17.,9.);a*=.5;}return s;}
+float segD(vec2 p,vec2 a,vec2 b,out float tt){vec2 pa=p-a,ba=b-a;tt=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*tt);}
 vec2 leafL(vec2 q,float cs,float dens,float seed){
   vec2 g=q/cs;vec2 id=floor(g);vec2 f=fract(g)-.5;
   float hh=h21(id+seed);
@@ -669,8 +678,8 @@ vec2 leafL(vec2 q,float cs,float dens,float seed){
   float ang=h21(id*1.7+seed+3.)*6.283+sin(T*1.3+hh*40.+id.x*.3)*(.35+WD*.9);
   float c=cos(ang),s=sin(ang);
   vec2 lp=vec2(c*f.x+s*f.y,-s*f.x+c*f.y);
-  float d=length(lp*vec2(1.,2.3))-.36;
-  float sh=.3+.7*(.5*h21(id+seed*3.)+.5*(.5+.5*cos(ang-.8)));
+  float ax=abs(lp.x)/.52;float d=max(abs(lp.y)-.21*(1.-ax*ax),(ax-1.)*.3);
+  float sh=.3+.7*(.5*h21(id+seed*3.)+.5*(.5+.5*cos(ang-.8)));sh+=.22*smoothstep(.035,.0,abs(lp.y));
   return vec2(smoothstep(.05,-.05,d),sh);
 }
 void main(){
@@ -699,28 +708,42 @@ void main(){
     float w=.022+.022*h11(id*5.3);
     float hg=max(q.y,0.);
     float wt=w*(1.-.25*smoothstep(0.,1.2,hg))*(1.+.8*exp(-hg*14.));
-    float trunk=has*smoothstep(wt,wt*.75,abs(fx-cxp))*step(0.,q.y);
-    float bark=fbm(vec2(fx*40.,q.y*6.));
-    float rim=has*exp(-max(fx-(cxp-wt),0.)/wt*5.)*step(fx,cxp+wt*.2);
+    float bark=fbm(vec2(fx*40.+sin(q.y*3.+id)*2.,q.y*5.));
+    float lean=sin(q.y*1.4+id*2.1)*.035;
+    float px=(fx-cxp)/2.2-lean;
+    float rim=has*exp(-max(px/(wt/2.2)+1.,0.)*3.)*step(px,wt/2.2*.2);
+    float brM=0.;float dens=0.;
     float cn=fbm(vec2(q.x*1.7+sw.x*3.+fi*3.,q.y*1.3+sw.y*3.));
-    float clr=mix(.2,1.,smoothstep(.1,.5,md));
-    float cf=clamp(cn*1.8+(q.y-.5)*1.4-.38,0.,1.)*clr;
-    float cl=fbm(vec2(q.x*4.+fi*5.,q.y*3.));
-    float cf2=smoothstep(.45,.7,cl)*smoothstep(.12,.3,q.y)*smoothstep(.9,.5,q.y)*has*smoothstep(.34,.0,abs(fx-.5));
-    float dens=max(cf,cf2);
-    float cs=.03*(1.+.4*t);
-    vec2 a1=leafL(q,cs,dens,1.+fi),a2=leafL(q+vec2(.021,.017),cs,dens*.9,7.+fi),a3=leafL(q+vec2(.011,.033),cs*1.35,dens,13.+fi);
-    vec2 a4=leafL(q+vec2(.007,.027),cs*.8,dens*.85,19.+fi);
+    float clr=mix(.25,1.,smoothstep(.1,.5,md));
+    float top=clamp(cn*1.5+(q.y-.7)*1.5-.3,0.,1.)*clr*.9;
+    dens=top;
+    vec2 pp=vec2(px,q.y);
+    for(int k=0;k<4;k++){
+      float fk=float(k);float hk=h11(id*3.1+fk*7.7+fi);
+      float sd=mod(fk,2.)<.5?1.:-1.;
+      vec2 a0=vec2(0.,.3+.17*fk+hk*.06);
+      vec2 b0=a0+vec2(sd*(.1+.07*hk),.16+.1*hk)+vec2(sw.x*1.5,sw.y*.8);
+      float tt;float dd=segD(pp,a0,b0,tt);
+      float th=(.0075-.0045*tt)*(1.-.35*t);
+      brM=max(brM,has*smoothstep(th,th*.5,dd)*step(a0.y,1.1));
+      float tipd=length(pp-b0);
+      dens=max(dens,has*smoothstep(.15+.04*hk,.0,tipd)*smoothstep(.6,.2,q.y*.6)*1.15);
+    }
+    float cs=.021*(1.+.4*t);
+    vec2 a1=leafL(q,cs,dens,1.+fi),a2=leafL(q+vec2(.011,.009),cs,dens*.95,7.+fi),a3=leafL(q+vec2(.006,.016),cs*1.5,dens*.7,13.+fi);
+    vec2 a4=leafL(q+vec2(.004,.012),cs*.75,dens*.9,19.+fi);
     float leaf=max(max(a1.x,a4.x),max(a2.x,a3.x));
     float sp=a4.x>=leaf?a4.y:((a1.x>=a2.x&&a1.x>=a3.x)?a1.y:((a2.x>=a3.x)?a2.y:a3.y));
+    float trunk=has*smoothstep(wt/2.2,wt/2.2*.75,abs(px))*step(0.,q.y)*(1.-smoothstep(1.05,1.25,q.y));
+    float limb=max(trunk,brM);
     float gm=smoothstep(gy+.004,gy-.004,uv.y);
-    float al=max(max(trunk,leaf),gm);
+    float al=max(max(limb,leaf),gm);
     vec3 base=mix(vec3(.07,.13,.19),vec3(.004,.012,.014),t);
-    vec3 lc=base*(.45+1.3*sp)*vec3(.9,1.08,1.);
-    lc=mix(lc,base*(.6+.8*bark)+vec3(.22,.32,.48)*rim*.45*(1.-t*.5),trunk*step(leaf,trunk));
+    vec3 lc=base*(.4+1.4*sp)*vec3(.85,1.15,.95);
+    lc=mix(lc,base*(.5+.9*bark)*vec3(.9,1.,1.05)+vec3(.22,.34,.5)*rim*.5*(1.-t*.5),limb*step(leaf,limb));
     float hl=smoothstep(.72,1.,sp)*leaf;
     lc+=vec3(.55,.75,1.)*hl*(1.-.5*t)*.75;
-    lc=mix(lc,base*.7,gm*step(max(trunk,leaf),gm));
+    lc=mix(lc,base*.7,gm*step(max(limb,leaf),gm));
     lc=mix(lc,fogc,mix(.5,.03,t*t));
     col=mix(col,lc,al);
     vis*=1.-al*.9;
@@ -805,8 +828,8 @@ vec3 skyc(vec3 rd){
 }
 void main(){
   float asp=R.x/R.y;vec2 uv=(gl_FragCoord.xy-.5*R)/(asp<1.1?R.x*.78:R.y);
-  float Tc=5.4;float ph=T/Tc;float u=fract(ph);float sn=floor(ph);
-  float s=mix(-3.6,3.6,u);float inj=abs(s)<1.5?1.:0.;float jx=clamp(s/1.5,-1.,1.);
+  float fcl=asp<1.1?1.:1.3;float hw=abs(asp<1.1?-2.75:-4.6)*((asp<1.1?.5/.78:.5*asp)/fcl);float rg2=hw+1.1;float Tc=2.*rg2/1.8;float ph=T/Tc;float u=fract(ph);float sn=floor(ph);
+  float s=mix(-rg2,rg2,u);float inj=abs(s)<1.5?1.:0.;float jx=clamp(s/1.5,-1.,1.);
   float jy=inj*.9*(1.-jx*jx);float bob=(1.-inj)*abs(sin(s*5.))*.045;
   AIR=smoothstep(.02,.2,jy);PITCH=atan(inj*(-2.*.9*jx/1.5))*.85;LP=s*4.5;
   SZ=.9+.2*h11(sn);SC=vec3(s,.36*SZ+jy+bob,0.);
@@ -1027,7 +1050,7 @@ async function fetchCached(url){
 function preload(){
   if(preloaded||!('caches' in window))return;preloaded=true;
   const run=async()=>{for(const s of BUILTINS){try{const ch=await caches.open('hushwave-sounds-v1');if(!(await ch.match(s.url))){const r=await fetch(s.url);if(r.ok)await ch.put(s.url,r)}}catch(e){}await new Promise(r=>setTimeout(r,150))}};
-  (window.requestIdleCallback||setTimeout)(run,1500);
+  setTimeout(()=>{(window.requestIdleCallback||(f=>setTimeout(f,0)))(run)},1500);
 }
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'){
@@ -1072,7 +1095,8 @@ document.addEventListener('click',e=>{const p=$('pop');if(p&&!p.hidden&&!p.conta
 function startApp(){
   $('app').replaceChildren(
     h('header',{class:'top'},h('div',{class:'brand'},h('span',{id:'hlogo',class:'logo','aria-hidden':'true'}),h('h1',{},'Hushwave')),h('div',{class:'row'},h('button',{class:'icon-btn','aria-label':'Help: how to mix',title:'How to mix',onclick:()=>$('help').showModal()},'?'),h('button',{class:'btn',onclick:()=>sb.auth.signOut()},'Log out'))),
-    h('button',{id:'dd',class:'dd','aria-expanded':'false',onclick:togglePop},h('span',{class:'mute',style:'margin:0'},'My mixes'),h('b',{id:'curmix'},'Choose a mix'),'\u25BE'),
+    h('div',{class:'row nw',style:'margin-top:14px;gap:8px'},h('button',{id:'dd',class:'dd','aria-expanded':'false',style:'margin:0;flex:1;min-width:0',onclick:togglePop},h('span',{class:'mute',style:'margin:0'},'My mixes'),h('b',{id:'curmix'},'Choose a mix'),'\u25BE'),
+      h('button',{class:'icon-btn dice','aria-label':'Random mix',title:'Random mix',style:'width:44px;height:44px;flex:none;font-size:20px',onclick:randomMix},'\u{1F3B2}')),
     h('div',{id:'pop',class:'pop',hidden:''},h('div',{class:'row nw'},h('input',{id:'pname',placeholder:'Name this mix',maxlength:'60',style:'flex:1;min-width:0'}),h('button',{class:'btn primary sm',onclick:savePreset},'Save')),h('div',{id:'mixes'})),
     h('label',{class:'mute',style:'display:block;margin-top:14px'},'Master volume',Object.assign(slider(Math.round(masterVol*100),'Master volume',setMaster),{id:'msl'})),
     h('div',{id:'vis',class:'vis',hidden:''},h('canvas',{id:'cv'}),h('canvas',{id:'gl',hidden:''}),h('div',{class:'vbar'},h('button',{id:'vplay',class:'btn primary sm',onclick:togglePlay},'Play'),h('label',{class:'mute'},'Dim',Object.assign(slider(100,'Dim',v=>{dim=Math.max(.15,v);saveState()}),{id:'dsl'})),h('button',{id:'eco',class:'btn sm',onclick:toggleEco},'Eco: off'),h('button',{id:'awk',class:'btn sm',onclick:toggleAwake},'Screen: on'),h('button',{class:'btn sm',onclick:closeVis},'Close'))),
