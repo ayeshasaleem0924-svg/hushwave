@@ -116,9 +116,15 @@ function showAuth(){
   const email=h('input',{type:'email',placeholder:'Email',autocomplete:'email'});
   const pass=h('input',{type:'password',placeholder:'Password (min 6 characters)',autocomplete:'current-password'});
   const sw=h('button',{class:'btn',type:'button'},'Create a new account');
+  const fg=h('button',{class:'btn',type:'button',style:'border-color:transparent;color:var(--mute);text-decoration:underline'},'Forgot password?');
   const btn=h('button',{class:'btn primary',type:'submit'},'Log in');
-  const form=h('form',{class:'auth'},h('img',{src:'logo.svg',alt:'Hushwave logo',width:'72',height:'72'}),h('h1',{style:'text-align:center'},'Hushwave'),h('p',{class:'mute'},'Mix calming sounds. Sleep easy.'),email,pass,btn,sw,msg);
+  const form=h('form',{class:'auth'},h('img',{src:'logo.svg',alt:'Hushwave logo',width:'72',height:'72'}),h('h1',{style:'text-align:center'},'Hushwave'),h('p',{class:'mute'},'Mix calming sounds. Sleep easy.'),email,pass,btn,sw,fg,msg);
   sw.onclick=()=>{mode=mode==='login'?'signup':'login';btn.textContent=mode==='login'?'Log in':'Create account';sw.textContent=mode==='login'?'Create a new account':'I already have an account';msg.textContent=''};
+  fg.onclick=async()=>{msg.textContent='';const e=email.value.trim();
+    if(!e){msg.textContent='Type your email above first, then press Forgot password.';return}
+    fg.disabled=true;
+    const r=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin+location.pathname});
+    fg.disabled=false;msg.textContent=r.error?r.error.message:'If this email has an account, a reset link is on its way. Open it on this device.'};
   form.onsubmit=async ev=>{ev.preventDefault();msg.textContent='';
     const e=email.value.trim(),p=pass.value;
     if(!e||p.length<6){msg.textContent='Enter an email and a password of at least 6 characters.';return}
@@ -129,7 +135,19 @@ function showAuth(){
     else if(!r.data.session)msg.textContent='Check your email to confirm your account, then log in.'};
   $('app').replaceChildren(form);
 }
+let recovering=false;
+function showReset(){
+  const msg=h('p',{class:'mute'}),pw=h('input',{type:'password',placeholder:'New password (min 6 characters)',autocomplete:'new-password'}),btn=h('button',{class:'btn primary',type:'submit'},'Save new password');
+  const form=h('form',{class:'auth'},h('img',{src:'logo.svg',alt:'Hushwave logo',width:'72',height:'72'}),h('h1',{style:'text-align:center'},'New password'),pw,btn,msg);
+  form.onsubmit=async ev=>{ev.preventDefault();if(pw.value.length<6){msg.textContent='Use at least 6 characters.';return}
+    btn.disabled=true;const r=await sb.auth.updateUser({password:pw.value});btn.disabled=false;
+    if(r.error){msg.textContent=r.error.message;return}
+    recovering=false;history.replaceState(null,'',location.pathname);startApp()};
+  $('app').replaceChildren(form);
+}
 sb.auth.onAuthStateChange((ev,session)=>{
+  if(ev==='PASSWORD_RECOVERY'){recovering=true;booted=true;curId=session&&session.user?session.user.id:null;user=session?session.user:null;setTimeout(showReset,0);return}
+  if(recovering)return;
   const id=session&&session.user?session.user.id:null;
   if(booted&&id===curId)return;
   booted=true;curId=id;user=session?session.user:null;
@@ -171,17 +189,41 @@ async function startNode(id){
   if(!ctx||nodes[id]||bad[id])return;
   const s=sounds.find(x=>x.id===id);if(!s)return;
   setLd(id,true);
-  const n=nodes[id]={gain:ctx.createGain()};n.gain.gain.value=levels[id]||0;n.gain.connect(master);
+  const n=nodes[id]={gain:ctx.createGain(),pan:ctx.createStereoPanner?ctx.createStereoPanner():null,p1:rnd(0,6.3),p2:rnd(0,6.3),p3:rnd(0,6.3),per1:rnd(35,80),per2:rnd(90,170),per3:rnd(40,100),st:null,dur:rnd(9,18)};
+  n.gain.gain.value=levels[id]||0;if(n.pan){n.gain.connect(n.pan);n.pan.connect(master)}else n.gain.connect(master);
   try{
     let ab;
     if(s.builtin){ab=await fetchCached(s.url)}
-    else{const r=await sb.storage.from(BUCKET).download(s.storage_path);if(r.error)throw r.error;ab=await r.data.arrayBuffer()}
+    else{ab=await fetchPrivate(s.storage_path)}
     const buf=await ctx.decodeAudioData(ab);
     if(nodes[id]!==n)return;
     const src=ctx.createBufferSource();src.buffer=buf;src.loop=true;src.connect(n.gain);src.start();n.src=src;
   }catch(e){if(nodes[id]===n)delete nodes[id];bad[id]=true;toast('Could not play "'+s.name+'". Try an mp3 or wav file.')}finally{setLd(id,false)}
 }
-function dropNode(id){const n=nodes[id];if(!n)return;try{n.src&&n.src.stop()}catch(e){}try{n.gain.disconnect()}catch(e){}delete nodes[id]}
+function dropNode(id){const n=nodes[id];if(!n)return;try{n.src&&n.src.stop()}catch(e){}try{n.gain.disconnect()}catch(e){}try{n.pan&&n.pan.disconnect()}catch(e){}delete nodes[id]}
+let living=false;
+function setLiving(on){
+  living=on;
+  if(!on&&ctx)for(const id in nodes){const n=nodes[id];n.gain.gain.setTargetAtTime(levels[id]||0,ctx.currentTime,.4);if(n.pan)n.pan.pan.setTargetAtTime(0,ctx.currentTime,.4)}
+  saveState();
+}
+setInterval(()=>{
+  if(!living||!ctx||!playing)return;
+  const tt=performance.now()/1000,now=ctx.currentTime;
+  for(const s of sounds){
+    const n=nodes[s.id],l=levels[s.id]||0;if(!n||!n.src||l<=0)continue;
+    let m=1+.17*Math.sin(6.283*tt/n.per1+n.p1)+.1*Math.sin(6.283*tt/n.per2+n.p2),w=.6;
+    if(s.category==='Thunder'){
+      if(n.st==null)n.st=tt+rnd(6,25);
+      let env=0;
+      if(tt>=n.st&&tt<n.st+n.dur){env=Math.pow(Math.sin(Math.PI*(tt-n.st)/n.dur),2)}
+      else if(tt>=n.st+n.dur){n.st=tt+rnd(25,80);n.dur=rnd(9,18)}
+      m*=.03+.97*env;w=.35;
+    }
+    n.gain.gain.setTargetAtTime(l*m,now,.8);
+    if(n.pan)n.pan.pan.setTargetAtTime(w*Math.sin(6.283*tt/n.per3+n.p3),now,.8);
+  }
+},250);
 function applyLevel(id){
   const n=nodes[id];
   if(n&&ctx)n.gain.gain.setTargetAtTime(levels[id]||0,ctx.currentTime,.05);
@@ -204,29 +246,45 @@ function setMaster(v){masterVol=v;saveState();if(master)master.gain.setTargetAtT
 
 /* ---------- sleep timer ---------- */
 const fmt=ms=>{const s=Math.ceil(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const FADE_MAX=45000;
+function setSl(txt){const e=$('slbl');if(e)e.textContent=txt}
+function showBlack(){
+  if($('blk'))return;const b=document.createElement('div');b.id='blk';
+  b.style.cssText='position:fixed;inset:0;background:#000;z-index:90;display:flex;align-items:flex-end;justify-content:center;padding-bottom:40px;color:#1d1d1d;font-size:13px';
+  b.textContent='Tap to wake';b.onclick=()=>b.remove();document.body.appendChild(b);
+}
 function startTimer(min){
-  cancelTimer();const end=Date.now()+min*60000;
+  cancelTimer();const total=min*60000,end=Date.now()+total,fadeMs=Math.min(FADE_MAX,total/3);
   timer=setInterval(async()=>{
     const r=end-Date.now();
-    if(r<=0){clearInterval(timer);timer=null;$('tlabel').textContent='';
-      if(playing)await togglePlay();setMaster(masterVol);closeVis();fadeV=1;return}
-    if(r<=8000&&master){master.gain.setTargetAtTime(0,ctx.currentTime,2);fadeV=Math.max(0,r/8000)}
-    $('tlabel').textContent=fmt(r)+' left';
+    if(r<=0){clearInterval(timer);timer=null;setSl('Sleep');if($('tlabel'))$('tlabel').textContent='';
+      if(playing)await togglePlay();setMaster(masterVol);closeVis();fadeV=1;showBlack();return}
+    if(r<=fadeMs){const k=Math.pow(Math.max(0,r/fadeMs),1.4);if(master)master.gain.setTargetAtTime(masterVol*k,ctx.currentTime,.5);fadeV=k}
+    if($('tlabel'))$('tlabel').textContent=fmt(r)+' left';setSl(fmt(r));
   },1000);
-  toast('Sleep timer started: '+min+' min');
+  toast('Sleep timer started: '+min+' min. The sound and picture fade out gently, then the screen goes black.');
 }
-function cancelTimer(){fadeV=1;if(timer){clearInterval(timer);timer=null;if($('tlabel'))$('tlabel').textContent='';if(master)master.gain.setTargetAtTime(masterVol,ctx.currentTime,.05)}}
+function cancelTimer(){fadeV=1;setSl('Sleep');if(timer){clearInterval(timer);timer=null;if($('tlabel'))$('tlabel').textContent='';if(master)master.gain.setTargetAtTime(masterVol,ctx.currentTime,.05)}}
 
 /* ---------- data ---------- */
+const cget=k=>{try{return JSON.parse(localStorage.getItem('hw:cs:'+k+':'+(user?user.id:''))||'[]')}catch(e){return[]}};
+const cset=(k,v)=>{try{localStorage.setItem('hw:cs:'+k+':'+user.id,JSON.stringify(v))}catch(e){}};
+async function fetchPrivate(path){
+  const key='https://hushwave.local/p/'+encodeURIComponent(path);let ch=null;
+  try{if('caches' in window){ch=await caches.open('hushwave-private-v1');const m=await ch.match(key);if(m)return await m.arrayBuffer()}}catch(e){}
+  const r=await sb.storage.from(BUCKET).download(path);if(r.error)throw r.error;
+  const ab=await r.data.arrayBuffer();if(ch)ch.put(key,new Response(ab.slice(0))).catch(()=>{});return ab;
+}
 async function loadSounds(){
   const r=await sb.from('sounds').select('*').order('created_at');
-  sounds=BUILTINS.concat(r.error?[]:r.data);restoreState();drawSounds();
+  if(!r.error)cset('sounds',r.data);
+  sounds=BUILTINS.concat(r.error?cget('sounds'):r.data);restoreState();drawSounds();
   if(r.error)toast('Could not load sounds: '+r.error.message);
 }
 async function loadPresets(){
   const r=await sb.from('presets').select('*').order('name');
-  if(r.error)return toast('Could not load mixes: '+r.error.message);
-  presets=r.data;drawPresets();
+  if(r.error){presets=cget('presets');drawPresets();return toast(presets.length?'Offline: showing your saved mixes.':'Could not load mixes: '+r.error.message)}
+  presets=r.data;cset('presets',presets);drawPresets();
 }
 async function upload(){
   const f=$('file').files[0],name=$('sname').value.trim(),cat=$('scat').value;
@@ -247,7 +305,7 @@ async function upload(){
 async function delSound(s){
   if(!confirm('Delete "'+s.name+'"?'))return;
   const r=await sb.from('sounds').delete().eq('id',s.id);if(r.error)return toast(r.error.message);
-  await sb.storage.from(BUCKET).remove([s.storage_path]);
+  await sb.storage.from(BUCKET).remove([s.storage_path]);try{(await caches.open('hushwave-private-v1')).delete('https://hushwave.local/p/'+encodeURIComponent(s.storage_path))}catch(e){}
   dropNode(s.id);delete levels[s.id];await loadSounds();
 }
 async function savePreset(){
@@ -1092,7 +1150,7 @@ function toggleEco(){eco=!eco;$('eco').textContent=eco?'Eco: on':'Eco: off';size
 function toggleAwake(){awake=!awake;$('awk').textContent=awake?'Screen: on':'Screen: off';wake(awake);saveState()}
 function saveState(){
   clearTimeout(saveT);
-  saveT=setTimeout(()=>{try{if(!user)return;const cm=$('curmix');localStorage.setItem('hw:'+user.id,JSON.stringify({levels,masterVol,visual,eco,awake,dim,curMix:cm?cm.textContent:''}))}catch(e){}},400);
+  saveT=setTimeout(()=>{try{if(!user)return;const cm=$('curmix');localStorage.setItem('hw:'+user.id,JSON.stringify({levels,masterVol,visual,eco,awake,dim,living,curMix:cm?cm.textContent:''}))}catch(e){}},400);
 }
 function restoreState(){
   try{
@@ -1100,9 +1158,9 @@ function restoreState(){
     levels={};sounds.forEach(s=>{if(j.levels&&j.levels[s.id]>0)levels[s.id]=j.levels[s.id]});
     if(typeof j.masterVol==='number')masterVol=j.masterVol;
     if(j.visual&&VOPTS.some(v=>v[0]===j.visual))visual=j.visual;
-    eco=!!j.eco;awake=j.awake!==false;if(typeof j.dim==='number')dim=j.dim;
+    eco=!!j.eco;living=!!j.living;awake=j.awake!==false;if(typeof j.dim==='number')dim=j.dim;
     const set=(id,fn)=>{const e=$(id);if(e)fn(e)};
-    set('vsel',e=>e.value=visual);set('msl',e=>e.value=Math.round(masterVol*100));set('dsl',e=>e.value=Math.round(dim*100));
+    set('vsel',e=>e.value=visual);set('liv',e=>e.checked=living);set('msl',e=>e.value=Math.round(masterVol*100));set('dsl',e=>e.value=Math.round(dim*100));
     set('eco',e=>e.textContent=eco?'Eco: on':'Eco: off');set('awk',e=>e.textContent=awake?'Screen: on':'Screen: off');
     set('curmix',e=>{if(j.curMix&&j.curMix!=='Choose a mix')e.textContent=j.curMix});
   }catch(e){}
@@ -1160,6 +1218,8 @@ function drawPresets(){
   m.replaceChildren(...presets.map(p=>h('div',{class:'mix',onclick:()=>loadPreset(p)},h('strong',{},p.name),
     h('button',{class:'del2','aria-label':'Delete mix '+p.name,onclick:e=>{e.stopPropagation();delPreset(p)}},'Delete'))));
 }
+window.addEventListener('offline',()=>toast('You are offline. Built-in sounds still work.'));
+window.addEventListener('online',()=>{toast('Back online.');if(user){loadSounds();loadPresets()}});
 function togglePop(){const p=$('pop');p.hidden=!p.hidden;$('dd').setAttribute('aria-expanded',String(!p.hidden))}
 function closePop(){const p=$('pop');if(p){p.hidden=true;$('dd').setAttribute('aria-expanded','false')}}
 document.addEventListener('click',e=>{const p=$('pop');if(p&&!p.hidden&&!p.contains(e.target)&&!$('dd').contains(e.target))closePop()});
@@ -1170,6 +1230,7 @@ function startApp(){
       h('button',{class:'icon-btn dice','aria-label':'Random mix',title:'Random mix',style:'width:44px;height:44px;flex:none;font-size:20px',onclick:randomMix},'\u{1F3B2}')),
     h('div',{id:'pop',class:'pop',hidden:''},h('div',{class:'row nw'},h('input',{id:'pname',placeholder:'Name this mix',maxlength:'60',style:'flex:1;min-width:0'}),h('button',{class:'btn primary sm',onclick:savePreset},'Save')),h('div',{id:'mixes'})),
     h('label',{class:'mute',style:'display:block;margin-top:14px'},'Master volume',Object.assign(slider(Math.round(masterVol*100),'Master volume',setMaster),{id:'msl'})),
+    h('label',{class:'mute',style:'display:flex;gap:10px;align-items:center;margin-top:10px;cursor:pointer'},h('input',{type:'checkbox',id:'liv',style:'min-height:0;width:20px;height:20px;accent-color:#00ed64;flex:none',onchange:e=>setLiving(e.target.checked)}),'Living mix: sounds drift softly and thunder comes and goes'),
     h('div',{id:'vis',class:'vis',hidden:''},h('canvas',{id:'cv'}),h('canvas',{id:'gl',hidden:''}),h('div',{class:'vbar'},h('button',{id:'vplay',class:'btn primary sm',onclick:togglePlay},'Play'),h('label',{class:'mute'},'Dim',Object.assign(slider(100,'Dim',v=>{dim=Math.max(.15,v);saveState()}),{id:'dsl'})),h('button',{id:'eco',class:'btn sm',onclick:toggleEco},'Eco: off'),h('button',{id:'awk',class:'btn sm',onclick:toggleAwake},'Screen: on'),h('button',{class:'btn sm','aria-label':'Previous visual',onclick:()=>stepVis(-1)},'\u25C0'),h('button',{class:'btn sm primary','aria-label':'Next visual',onclick:()=>stepVis(1)},'Next \u25B6'),h('button',{class:'btn sm',onclick:closeVis},'Close')),h('div',{id:'vname',class:'vname'})),
     h('dialog',{id:'help',class:'help'},
       h('div',{class:'row',style:'justify-content:space-between'},h('h2',{style:'margin:0'},'How to mix / Mix kaise banayein'),h('button',{class:'btn',onclick:()=>$('help').close()},'Close')),
@@ -1177,14 +1238,14 @@ function startApp(){
         h('div',{},h('strong',{},'English'),h('ol',{},...GUIDE.en.map(t=>h('li',{},t)))),
         h('div',{},h('strong',{},'Roman Urdu'),h('ol',{},...GUIDE.ur.map(t=>h('li',{},t)))))),
     h('dialog',{id:'tdlg',class:'mini'},h('h2',{style:'margin:0 0 12px'},'Sleep timer'),
-      h('div',{class:'row nw'},h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,60,90].map(m=>h('option',{value:m},m+' min'))),
+      h('div',{class:'row nw'},h('select',{id:'tsel','aria-label':'Sleep timer minutes'},...[15,30,45,60,90,120].map(m=>h('option',{value:m},m+' min'))),
         h('button',{class:'btn sm',onclick:()=>{startTimer(+$('tsel').value);$('tdlg').close()}},'Start'),h('button',{class:'btn sm',onclick:cancelTimer},'Cancel')),
       h('p',{id:'tlabel',class:'mute'}),h('button',{class:'btn',onclick:()=>$('tdlg').close()},'Close')),
     h('dialog',{id:'vdlg',class:'mini'},h('h2',{style:'margin:0 0 12px'},'Visual'),
       h('div',{class:'row nw'},h('select',{id:'vsel','aria-label':'Visual',onchange:e=>{visual=e.target.value;saveState()}},...VOPTS.map(([v,n])=>h('option',{value:v},n))),
         h('button',{class:'btn primary sm',onclick:()=>{$('vdlg').close();openVis()}},'Show')),
       h('button',{class:'btn',style:'margin-top:12px',onclick:()=>$('vdlg').close()},'Close')),
-    h('nav',{class:'dock'},h('button',{class:'ib',onclick:()=>$('tdlg').showModal()},h('span',{},'\u{1F319}'),'Sleep'),
+    h('nav',{class:'dock'},h('button',{class:'ib',onclick:()=>$('tdlg').showModal()},h('span',{},'\u{1F319}'),h('b',{id:'slbl',style:'font-weight:400'},'Sleep')),
       h('button',{id:'play',class:'pl',onclick:togglePlay,'aria-label':'Play'},'\u25B6'),
       h('button',{class:'ib',onclick:()=>$('vdlg').showModal()},h('span',{},'\u2728'),'Visual')),
     h('div',{id:'grid',class:'grid',style:'margin-top:16px'}),
