@@ -128,6 +128,25 @@ body.eco .glass,body.eco .vbar,body.eco .mixp{backdrop-filter:none!important;-we
 .mrow{margin:2px 0}
 .mrow input[type=range]{min-height:0;height:22px}
 @media(min-width:900px){.mixp{max-height:none}}
+
+/* v10: icon layout */
+.lbl2{font-size:12px;color:var(--mute);margin:16px 2px 8px}
+.scenes{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.scenes::-webkit-scrollbar{display:none}
+.scenes .th{flex:none;width:118px}
+.igrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:14px 4px;justify-items:center}
+.ico{display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;min-width:0;max-width:84px;text-align:center}
+.disc{width:54px;height:54px;border-radius:50%;background:var(--c);display:flex;align-items:center;justify-content:center;font-size:24px;border:2px solid transparent;filter:saturate(.45);opacity:.6;transition:filter .2s,opacity .2s,transform .2s}
+.ico.on .disc{filter:none;opacity:1;border-color:#fff;transform:scale(1.04)}
+.ico .nm{font-size:11px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute)}
+.ico.on .nm{color:#fff;font-weight:600}
+.ico.ld .disc{animation:pulseD 1s ease-in-out infinite}
+@keyframes pulseD{50%{opacity:.35}}
+.sheetp{position:fixed;left:12px;right:12px;bottom:92px;max-height:62vh;overflow:auto;z-index:25;margin:0 auto;max-width:520px}
+.dock{left:44px!important;right:44px!important;bottom:12px!important;border:1px solid rgba(255,255,255,.22)!important;border-radius:30px!important;background:rgba(255,255,255,.1)!important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:6px 10px calc(6px + env(safe-area-inset-bottom))!important;justify-content:space-around!important;gap:0!important;max-width:420px;margin:0 auto}
+body.eco .dock{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(40,38,80,.94)!important}
+.xbtn{background:none;border:none;color:var(--mute);font:inherit;font-size:18px;cursor:pointer;padding:0 4px}
+.mine-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -208,17 +227,17 @@ const BUILTINS=[
   {id:'b:keyboard-tapping',name:'Keyboard tapping',category:'Tapping',builtin:true,url:'sounds/keyboard-tapping.mp3'},
   {id:'b:scratching-fast',name:'Scratching fast',category:'Brushing',builtin:true,url:'sounds/scratching-fast.mp3'}];
 const GUIDE={en:[
- 'Tap a sound tile to switch it on. Drag its slider to make it louder or softer. Tap the tile again to switch it off.',
- 'Tap the big round button at the bottom to play or pause.',
- 'Open My mixes at the top, type a name and press Save to keep your mix. Tap a saved mix to load it.',
- 'The moon button sets a sleep timer. The sparkles button opens full-screen visuals.',
- 'Add your own sounds at the bottom of the page.'],
+ 'Tap a round sound icon to switch it on. Its volume slider appears under "Now in your mix". Tap the icon again to switch it off.',
+ 'Tap the big round Play button at the bottom.',
+ 'Open My mixes at the top, type a name and press Save to keep your mix. The dice button makes a random mix.',
+ 'Tap a picture under Scenes for a full-screen visual. Inside it, Mixer changes the sounds and Next shows the next scene.',
+ 'The moon button sets a sleep timer. The + button adds your own sounds.'],
 ur:[
- 'Kisi awaaz ke tile par dabayein, woh on ho jati hai. Us ka slider khench kar awaaz kam ya zyada karein. Dobara dabane se woh off ho jati hai.',
- 'Neeche bade gol button se Play ya Pause karein.',
- 'Upar My mixes kholein, naam likh kar Save dabayein, to mix mehfooz ho jati hai. Saved mix par dabane se woh load ho jati hai.',
- 'Chand wala button sleep timer lagata hai. Sitaron wala button poori screen ke visuals kholta hai.',
- 'Apni awaazein page ke neeche se add karein.']};
+ 'Gol awaaz ke icon par dabayein, woh on ho jati hai. Us ka volume slider "Now in your mix" mein nazar aata hai. Dobara dabane se woh off ho jati hai.',
+ 'Neeche bade gol Play button ko dabayein.',
+ 'Upar My mixes kholein, naam likh kar Save dabayein, to mix mehfooz ho jati hai. Pase ka button random mix banata hai.',
+ 'Scenes ke neeche kisi tasveer par dabayein, to poori screen ka visual khulta hai. Us ke andar Mixer awaazein badalta hai aur Next agla scene dikhata hai.',
+ 'Chand ka button sleep timer lagata hai. + ka button apni awaazein jorta hai.']};
 
 /* ---------- audio ---------- */
 function ensureCtx(){if(!ctx){ctx=new(window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.gain.value=masterVol;master.connect(ctx.destination);an=ctx.createAnalyser();an.fftSize=256;master.connect(an)}return ctx}
@@ -335,7 +354,7 @@ async function upload(){
     const up=await sb.storage.from(BUCKET).upload(path,f,{contentType:f.type||'audio/mpeg'});if(up.error)throw up.error;
     const ins=await sb.from('sounds').insert({name,category:cat,storage_path:path});
     if(ins.error){await sb.storage.from(BUCKET).remove([path]);throw ins.error}
-    $('file').value='';$('sname').value='';toast('Sound added.');{const ap=$('addp');if(ap){ap.hidden=true;$('addb').setAttribute('aria-expanded','false')}}await loadSounds();
+    $('file').value='';$('sname').value='';toast('Sound added.');{const ap=$('addp');if(ap)ap.hidden=true}await loadSounds();
   }catch(e){toast('Upload failed: '+e.message)}
   b.disabled=false;b.textContent='Upload';
 }
@@ -1240,15 +1259,28 @@ const ICON={Rain:'\u{1F327}\uFE0F',Wind:'\u{1F4A8}',Thunder:'\u26A1',Tapping:'\u
 function drawSounds(){
   const g=$('grid');if(!g)return;
   g.replaceChildren(...sounds.map(s=>{
-    const on=(levels[s.id]||0)>0,tile=h('div',{class:'tile'+(on?' on':'')+(loadingIds.has(s.id)?' ld':''),'data-sid':s.id,role:'button',tabindex:'0','aria-pressed':String(on)});
-    tile.style.setProperty('--c',PAST[s.category]||PAST.Other);
+    const on=(levels[s.id]||0)>0,w=h('div',{class:'ico'+(on?' on':'')+(loadingIds.has(s.id)?' ld':''),'data-sid':s.id,role:'button',tabindex:'0','aria-pressed':String(on),'aria-label':s.name});
+    const disc=h('span',{class:'disc'},ICON[s.category]||ICON.Other);disc.style.setProperty('--c',PAST[s.category]||PAST.Other);
     const flip=()=>{levels[s.id]=on?0:.6;applyLevel(s.id);drawSounds()};
-    tile.onclick=flip;tile.onkeydown=e=>{if(e.target===tile&&(e.key==='Enter'||e.key===' ')){e.preventDefault();flip()}};
-    tile.append(h('span',{class:'ic'},ICON[s.category]||ICON.Other),h('strong',{},s.name));
-    if(on)tile.append(slider(Math.round(levels[s.id]*100),s.name+' volume',v=>{levels[s.id]=v;applyLevel(s.id)}));
-        if(!s.builtin)tile.append(h('button',{class:'del',onclick:e=>{e.stopPropagation();delSound(s)}},'Delete'));
-    return tile}));
+    w.onclick=flip;w.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();flip()}};
+    w.append(disc,h('span',{class:'nm'},s.name));return w;
+  }));
+  drawNow();
   const mp=$('mixp');if(mp&&!mp.hidden)drawMixer();
+  const ap=$('addp');if(ap&&!ap.hidden)drawMine();
+}
+function drawNow(){
+  const n=$('nowl');if(!n)return;
+  const on=sounds.filter(s=>(levels[s.id]||0)>0);
+  if(!on.length){n.replaceChildren(h('p',{class:'mute',style:'margin:0 0 6px'},'Tap a sound above to add it to your mix.'));return}
+  n.replaceChildren(h('div',{class:'lbl2',style:'margin:0 0 4px'},'Now in your mix'),...on.map(s=>h('div',{class:'mrow'},
+    h('span',{class:'mname on'},s.name),
+    slider(Math.round(levels[s.id]*100),s.name+' volume',v=>{levels[s.id]=v;applyLevel(s.id)}),
+    h('button',{class:'xbtn','aria-label':'Switch off '+s.name,onclick:()=>{levels[s.id]=0;applyLevel(s.id);drawSounds()}},'\u00D7'))));
+}
+function drawMine(){
+  const m=$('mine');if(!m)return;const mine=sounds.filter(s=>!s.builtin);
+  m.replaceChildren(...(mine.length?mine.map(s=>h('div',{class:'mine-row'},h('span',{},s.name),h('button',{class:'del2',onclick:()=>delSound(s)},'Delete'))):[h('p',{class:'mute',style:'margin:4px 0'},'You have not added sounds yet.')]));
 }
 function drawPresets(){
   const m=$('mixes');if(!m)return;
@@ -1279,8 +1311,8 @@ function buildPreviews(){
     b.append(n);return b;
   }));
 }
-function toggleAdd(){const p=$('addp');p.hidden=!p.hidden;$('addb').setAttribute('aria-expanded',String(!p.hidden))}
-function toggleVisPanel(){const p=$('vprev');p.hidden=!p.hidden;$('visb').setAttribute('aria-expanded',String(!p.hidden))}
+function toggleAdd(){const p=$('addp');p.hidden=!p.hidden;if(!p.hidden)drawMine()}
+document.addEventListener('click',e=>{const p=$('addp');if(p&&!p.hidden&&!p.contains(e.target)&&!e.target.closest('.dock'))p.hidden=true});
 function drawMixer(){
   const m=$('mixp');if(!m)return;
   const on=sounds.filter(s=>(levels[s.id]||0)>0),off=sounds.filter(s=>!((levels[s.id]||0)>0));
@@ -1300,17 +1332,22 @@ function startApp(){
     h('div',{class:'row nw',style:'margin-top:14px;gap:8px'},h('button',{id:'dd',class:'dd','aria-expanded':'false',style:'margin:0;flex:1;min-width:0',onclick:togglePop},h('span',{class:'mute',style:'margin:0'},'My mixes'),h('b',{id:'curmix'},'Choose a mix'),'\u25BE'),
       h('button',{class:'icon-btn dice','aria-label':'Random mix',title:'Random mix',style:'width:44px;height:44px;flex:none;font-size:20px',onclick:randomMix},'\u{1F3B2}')),
     h('div',{id:'pop',class:'pop',hidden:''},h('div',{class:'row nw'},h('input',{id:'pname',placeholder:'Name this mix',maxlength:'60',style:'flex:1;min-width:0'}),h('button',{class:'btn primary sm',onclick:savePreset},'Save')),h('div',{id:'mixes'})),
-    h('button',{id:'addb',class:'addb','aria-expanded':'false',onclick:toggleAdd},'+ Add a sound \u25BE'),
-    h('div',{id:'addp',class:'glass',hidden:''},
-      h('p',{class:'mute',style:'margin:0 0 8px'},'mp3, wav or m4a, max '+MAX_MB+' MB. A 30 to 90 second loop works best.'),
+    h('div',{class:'lbl2'},'Scenes'),
+    h('div',{id:'vprev',class:'scenes'}),
+    h('div',{class:'lbl2'},'Sounds'),
+    h('div',{id:'grid',class:'igrid'}),
+    h('div',{id:'nowc',class:'glass',style:'margin-top:16px'},
+      h('div',{id:'nowl'}),
+    h('label',{class:'mute',style:'display:block;margin-top:14px'},'Master volume',Object.assign(slider(Math.round(masterVol*100),'Master volume',setMaster),{id:'msl'})),
+    h('label',{class:'mute',style:'display:flex;gap:10px;align-items:center;margin-top:10px;cursor:pointer'},h('input',{type:'checkbox',id:'liv',style:'min-height:0;width:20px;height:20px;accent-color:#00ed64;flex:none',onchange:e=>setLiving(e.target.checked)}),'Living mix: sounds drift softly and thunder comes and goes'),),
+    h('div',{id:'addp',class:'glass sheetp',hidden:''},
+      h('div',{class:'row',style:'justify-content:space-between;align-items:center'},h('strong',{},'Add a sound'),h('button',{class:'btn sm',onclick:toggleAdd},'Close')),
+      h('p',{class:'mute',style:'margin:6px 0 8px'},'mp3, wav or m4a, max '+MAX_MB+' MB. A 30 to 90 second loop works best.'),
       h('div',{class:'row'},h('input',{id:'file',type:'file',accept:'audio/*,.mp3,.wav,.ogg,.m4a,.aac,.webm'}),
         h('input',{id:'sname',placeholder:'Sound name',maxlength:'60'}),
         h('select',{id:'scat','aria-label':'Category'},...CATS.map(c=>h('option',{value:c},c))),
-        h('button',{id:'ubtn',class:'btn primary',onclick:upload},'Upload'))),
-    h('button',{id:'visb',class:'visb','aria-expanded':'false',onclick:toggleVisPanel},'Visuals \u25BE'),
-    h('div',{id:'vprev',class:'glass pv',hidden:''}),
-    h('label',{class:'mute',style:'display:block;margin-top:14px'},'Master volume',Object.assign(slider(Math.round(masterVol*100),'Master volume',setMaster),{id:'msl'})),
-    h('label',{class:'mute',style:'display:flex;gap:10px;align-items:center;margin-top:10px;cursor:pointer'},h('input',{type:'checkbox',id:'liv',style:'min-height:0;width:20px;height:20px;accent-color:#00ed64;flex:none',onchange:e=>setLiving(e.target.checked)}),'Living mix: sounds drift softly and thunder comes and goes'),
+        h('button',{id:'ubtn',class:'btn primary',onclick:upload},'Upload')),
+      h('div',{class:'lbl2'},'Your uploaded sounds'),h('div',{id:'mine'})),
     h('div',{id:'vis',class:'vis',hidden:''},h('canvas',{id:'cv'}),h('canvas',{id:'gl',hidden:''}),h('div',{class:'vui'},h('div',{id:'mixp',class:'mixp',hidden:''}),h('div',{class:'vbar'},h('button',{id:'vplay',class:'btn primary sm',onclick:togglePlay},'Play'),h('label',{class:'mute'},'Dim',Object.assign(slider(100,'Dim',v=>{dim=Math.max(.15,v);saveState()}),{id:'dsl'})),h('button',{id:'eco',class:'btn sm',onclick:toggleEco},'Eco: off'),h('button',{id:'awk',class:'btn sm',onclick:toggleAwake},'Screen: on'),h('button',{id:'mixb',class:'btn sm',onclick:toggleMix},'Mixer \u25B4'),h('button',{class:'btn sm','aria-label':'Previous visual',onclick:()=>stepVis(-1)},'\u25C0'),h('button',{class:'btn sm primary','aria-label':'Next visual',onclick:()=>stepVis(1)},'Next \u25B6'),h('button',{class:'btn sm',onclick:closeVis},'Close'))),h('div',{id:'vname',class:'vname'})),
     h('dialog',{id:'help',class:'help'},
       h('div',{class:'row',style:'justify-content:space-between'},h('h2',{style:'margin:0'},'How to mix / Mix kaise banayein'),h('button',{class:'btn',onclick:()=>$('help').close()},'Close')),
@@ -1322,8 +1359,9 @@ function startApp(){
         h('button',{class:'btn sm',onclick:()=>{startTimer(+$('tsel').value);$('tdlg').close()}},'Start'),h('button',{class:'btn sm',onclick:cancelTimer},'Cancel')),
       h('p',{id:'tlabel',class:'mute'}),h('button',{class:'btn',onclick:()=>$('tdlg').close()},'Close')),
     h('nav',{class:'dock'},h('button',{class:'ib',onclick:()=>$('tdlg').showModal()},h('span',{},'\u{1F319}'),h('b',{id:'slbl',style:'font-weight:400'},'Sleep')),
-      h('button',{id:'play',class:'pl',onclick:togglePlay,'aria-label':'Play'},'\u25B6')),
-    h('div',{id:'grid',class:'grid',style:'margin-top:14px'}));
+      h('button',{id:'play',class:'pl',onclick:togglePlay,'aria-label':'Play'},'\u25B6'),
+      h('button',{class:'ib',onclick:toggleAdd,'aria-label':'Add a sound'},h('span',{},'+'),'Add')),
+    h('div',{style:'height:2px'}));
   $('hlogo').innerHTML=LOGO;buildPreviews();$('cv').onclick=$('gl').onclick=()=>$('vis').classList.toggle('hide');{let sx=0,sy=0;const v=$('vis');v.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});v.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>70&&Math.abs(dx)>Math.abs(dy)*1.6){stepVis(dx<0?1:-1);e.preventDefault()}})}['help','tdlg'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.close()}));updatePlay();loadSounds();loadPresets();initMedia();preload();
 }
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
